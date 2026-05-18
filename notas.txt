@@ -1,1 +1,4 @@
-Entendemos que estamos atrazados con el proyecto en general, Estamos apuntando a hacer juego estilo  Vampires survivors  o Brotato. 
+Entendemos que estamos atrazados con el proyecto en general, Estamos apuntando a hacer juego estilo  Vampires survivors  o Brotato. Con estilo de granja.
+
+Una gallina tirando huevos a depredadores, que segun aumente el puntaje, va a poder elejir una mejora. Ahora es automatico la velocidad de disparo
+
