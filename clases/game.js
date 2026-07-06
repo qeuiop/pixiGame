@@ -74,14 +74,14 @@ class Game {
 async iniciar() {
     this.app = new PIXI.Application();
     await this.app.init({
-        width:           600,     
-        height:          600,
+        width:           1000,     
+        height:          1000,
         backgroundColor: 0x000000,
     });
 
     // Actualizamos W y H para que moverCamara use los valores correctos
-    this.W = 600;
-    this.H = 600;
+    this.W = 1000;
+    this.H = 1000;
 
         const view = this.app.view || this.app.canvas || (this.app.renderer && this.app.renderer.view);    if (!view) throw new Error('No se pudo obtener el canvas de PixiJS');
     document.body.appendChild(view);
