@@ -1,14 +1,52 @@
 
 
 class Specter extends Enemy {
-    constructor(x, y, game, destinoVector = null) {
-        super(x, y, 'specter.png', 1.0, game);
+    constructor(x, y, game, destinoVector = null, esElite = false) {
+        // Specter: lento, presión constante pero evadible
+        super(x, y, 'specter.png', 2, game, esElite);
 
         this.radioBoids = 60;
 
         // Si se define, el specter ignora al jugador y viaja en línea recta hacia este punto
         this.destinoVector = destinoVector;
         this.eliminado = false;
+
+        // Reemplaza el sprite estático por el spritesheet de movimiento, escalado a 64x64
+        this.game.mundoColor.removeChild(this.gfx);
+        this.gfx.destroy();
+        this.game.mundoGris.removeChild(this.gfxGris);
+        this.gfxGris.destroy();
+
+        const FRAME            = 87;
+        const CANTIDAD_FRAMES  = 11;
+        const TAMANO_EN_JUEGO  = 64;
+
+        const moveSrc = PIXI.Assets.get('sprites/specter_move.png');
+        this._framesMove = Array.from({ length: CANTIDAD_FRAMES }, (_, i) =>
+            new PIXI.Texture({ source: moveSrc.source, frame: new PIXI.Rectangle(i * FRAME, 0, FRAME, FRAME) })
+        );
+
+        this.gfx = new PIXI.AnimatedSprite(this._framesMove);
+        this.gfx.anchor.set(0.5);
+        this.gfx.animationSpeed = 0.15;
+        this.gfx.loop = true;
+        this.gfx.play();
+
+        // this.escala solo existe si es élite: se combina con la base para que se vea más grande
+        const escalaBase = TAMANO_EN_JUEGO / FRAME;
+        this.gfx.scale.set(escalaBase * (this.esGrande ? this.escala : 1));
+
+        this.gfx.x = this.x;
+        this.gfx.y = this.y;
+        this.game.mundoColor.addChild(this.gfx);
+
+        this.gfxGris = new PIXI.Sprite(this.gfx.texture);
+        this.gfxGris.anchor.set(0.5);
+        this.gfxGris.x = this.x;
+        this.gfxGris.y = this.y;
+        this.game.mundoGris.addChild(this.gfxGris);
+
+        this.sincronizarGrafico();
     }
 
     update() {
@@ -37,6 +75,7 @@ class Specter extends Enemy {
         this.x += this.vx;
         this.y += this.vy;
 
+        this.orientarSprite();
         this.sincronizarGrafico();
     }
 
@@ -51,6 +90,7 @@ class Specter extends Enemy {
         this.x += this.vx;
         this.y += this.vy;
 
+        this.orientarSprite();
         this.sincronizarGrafico();
 
         // Llegó al punto opuesto del vector: se elimina
