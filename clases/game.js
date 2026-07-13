@@ -1,35 +1,48 @@
+// Motor y estado central del juego. Maneja el ciclo de partida completo, la cámara, el
+// spawner de enemigos, las colisiones, el HUD y la transición entre menú, partida y derrota.
 class Game {
     constructor() {
-        this.W = window.innerWidth;   
+        this.W = window.innerWidth;
         this.H = window.innerHeight;
-        this.anchoMundo = 1800;       
+        this.anchoMundo = 1800;
         this.altoMundo  = 1800;
 
         this.app = null;
 
-        this.wave       = 1; // refleja el nivel del jugador, solo para HUD/debug
+        this.wave       = 1; // refleja el nivel del jugador, solo para HUD y debug
         this.spawnTimer = 0;
+        // Tope duro de enemigos vivos a la vez. Sin esto, en partidas largas el spawner
+        // acumula más enemigos de los que el jugador mata, y las colisiones entre ellos
+        // terminan colgandose
+        this.maxEnemigos = 150;
 
-        this.player  = null;
-        this.bullets = [];
-        this.enemies = [];
-         this.xpItems = [];
-        this.pausado = false;
+        this.player     = null;
+        this.bullets    = [];
+        this.enemies    = [];
+        this.xpItems    = [];
+        this.obstaculos = []; // obstáculos fijos con colisión sólida
+        this.cadaveres  = []; // enemigos ya muertos que esperan terminar su flash antes de destruirse
+        this.pausado    = false;
 
-        // Menú de pausa (ESC): separado de "pausado" (que se usa para las cartas
-        // de selección de mejora), así uno no pisa al otro
+        // Menú de pausa (ESC), separado de pausado que se usa para las cartas de mejora
         this.menu        = null;
         this.enMenuPausa = false;
         this.barraXP     = null;
 
-        // Oleada en vector: cada 15s aparecen specters en un borde que cruzan el mapa en línea recta
+        // Pantalla de derrota, se muestra una sola vez cuando el jugador llega a 0 de vida
+        this.pantallaDerrota = null;
+        this.terminada       = false;
+
+        // Oleada en vector, cada 15s aparecen specters en un borde que cruzan el mapa en línea recta
         this.eventoVectorTimer     = 0;
         this.eventoVectorIntervalo = 15 * 60;
 
         this.containerPrincipal  = null;
-        this.mundoGris           = null; // capa de fondo: todo el mapa, siempre en blanco y negro
-        this.mundoColor          = null; // capa recortada por mascaraPercepcion: solo se ve dentro del rango del jugador
+        this.mundoGris           = null; // capa de fondo, todo el mapa siempre en blanco y negro
+        this.mundoColor          = null; // capa recortada por mascaraPercepcion, solo dentro del rango del jugador
         this.mascaraPercepcion   = null; // círculo que define qué parte de mundoColor se muestra
+        this.oscuridad           = null; // vignette de pantalla, oscurece todo salvo un círculo centrado en el jugador
+        this.factorRadioOscuridad = 3;   // su radio es mas veces el de mascaraPercepcion
         this.targetCamara        = null;
         this.limiteDerechoCamara = 0;
         this.limiteInferiorCamara= 0;
@@ -37,9 +50,11 @@ class Game {
         this.keys = {};
         window.addEventListener('keydown', e => {
             this.keys[e.key] = true;
-            if (e.key === 'Escape' && this.menu) this.alternarMenuPausa();
+            if (e.key === 'Escape' && this.menu && !this.terminada) this.alternarMenuPausa();
         });
         window.addEventListener('keyup', e => this.keys[e.key] = false);
+
+        this.cheats = new Cheats(this);
 
         this.inicializar();
     }
@@ -47,49 +62,50 @@ class Game {
 
     async inicializar() {
         try {
-            const SPRITE_FILES = ['player.png', 'bullet.png', 'wraith.png', 'wraith_move.png', 'specter.png', 'specter_move.png', 'xp.png', 'fondo.png',
-                                   'chicken_run_left-Sheet.png', 'chicken_eating_left-Sheet.png'];
+            const SPRITE_FILES = ['player.png', 'bullet.png', 'wraith.png', 'wraith_move.png', 'specter.png', 'specter_move.png', 'slime_move.png', 'xp.png', 'fondo.png',
+                                   'chicken_run_left-Sheet.png', 'chicken_eating_left-Sheet.png',
+                                   'rock (1).png', 'rock (2).png', 'rock (3).png',
+                                   'fruit (1).png', 'fruit (2).png', 'fruit (3).png', 'fruit (4).png', 'fruit (5).png', 'Bone.png'];
             await PIXI.Assets.load(SPRITE_FILES.map(n => `sprites/${n}`));
 
-            await this.iniciar();
+            await this.crearApp();
 
-            const texturaFondo = PIXI.Assets.get('sprites/fondo.png');
-
-            // Un TilingSprite por mundo (comparten la misma textura, es liviano):
-            // el gris siempre visible, el de color solo se ve dentro de la máscara
-            this.fondoGris = new PIXI.TilingSprite({ texture: texturaFondo, width: this.anchoMundo, height: this.altoMundo });
-            this.fondoColor = new PIXI.TilingSprite({ texture: texturaFondo, width: this.anchoMundo, height: this.altoMundo });
-            this.mundoGris.addChildAt(this.fondoGris, 0);
-            this.mundoColor.addChildAt(this.fondoColor, 0);
-
-            // Spawn inicial en el mundo lejos del centro
-            for (let i = 0; i < 3; i++) this.agregarWraith( Math.random() * this.anchoMundo, Math.random() * this.altoMundo);
-            for (let i = 0; i < 5; i++) this.agregarSpecter(Math.random() * this.anchoMundo, Math.random() * this.altoMundo);
+            // Al abrir el juego se ve el menú principal, la partida arranca recién al tocar JUGAR
+            this.menuPrincipal = new MenuPrincipal(this);
+            this.menuPrincipal.mostrar();
 
         } catch (err) {
             console.error('Error al inicializar el juego:', err);
         }
     }
 
-async iniciar() {
+async crearApp() {
     this.app = new PIXI.Application();
     await this.app.init({
-        width:           1000,     
-        height:          1000,
+        width:           window.innerWidth,
+        height:          window.innerHeight,
         backgroundColor: 0x000000,
     });
 
-    // Actualizamos W y H para que moverCamara use los valores correctos
-    this.W = 1000;
-    this.H = 1000;
+    // Actualiza W y H para que moverCamara use los valores correctos
+    this.W = window.innerWidth;
+    this.H = window.innerHeight;
 
         const view = this.app.view || this.app.canvas || (this.app.renderer && this.app.renderer.view);    if (!view) throw new Error('No se pudo obtener el canvas de PixiJS');
     document.body.appendChild(view);
+}
 
+// Arranca o reinicia una partida, se llama al tocar JUGAR en el menú principal
+iniciarPartida() {
     this.containerPrincipal = new PIXI.Container();
     this.app.stage.addChild(this.containerPrincipal);
 
-    // Efecto de percepción: el mapa vive duplicado en dos capas, mundoGris en blanco y
+    // Oscuridad, vignette en espacio de pantalla con un agujero circular centrado en el
+    // jugador, se redibuja en actualizarOscuridad() según su rango
+    this.oscuridad = new PIXI.Graphics();
+    this.app.stage.addChild(this.oscuridad);
+
+    // Efecto de percepción, el mapa vive duplicado en dos capas, mundoGris en blanco y
     // negro y mundoColor recortado con una máscara circular centrada en el jugador
     this.mundoGris  = new PIXI.Container();
     this.mundoColor = new PIXI.Container();
@@ -140,7 +156,7 @@ async iniciar() {
     this.toastTimer = 0;
     this.app.stage.addChild(this.toastHUD);
 
-    // Jugador en el centro del MUNDO
+    // Jugador en el centro del mundo
     this.player = new Player(this.anchoMundo / 2, this.altoMundo / 2, this);
     this.targetCamara = this.player;
 
@@ -150,6 +166,27 @@ async iniciar() {
 
     this.menu    = new Menu(this);
     this.barraXP = new BarraXP(this);
+    this.pantallaDerrota = new PantallaDerrota(this);
+    this.terminada = false;
+
+    const texturaFondo = PIXI.Assets.get('sprites/fondo.png');
+
+    // Un TilingSprite por mundo, el gris siempre visible, el de color solo dentro de la máscara
+    this.fondoGris  = new PIXI.TilingSprite({ texture: texturaFondo, width: this.anchoMundo, height: this.altoMundo });
+    this.fondoColor = new PIXI.TilingSprite({ texture: texturaFondo, width: this.anchoMundo, height: this.altoMundo });
+    this.mundoGris.addChildAt(this.fondoGris, 0);
+    this.mundoColor.addChildAt(this.fondoColor, 0);
+
+    // Spawn inicial en el mundo lejos del centro
+    for (let i = 0; i < 3; i++) this.agregarWraith( Math.random() * this.anchoMundo, Math.random() * this.altoMundo);
+    for (let i = 0; i < 5; i++) this.agregarSpecter(Math.random() * this.anchoMundo, Math.random() * this.altoMundo);
+    for (let i = 0; i < 2; i++) this.agregarSlime(  Math.random() * this.anchoMundo, Math.random() * this.altoMundo);
+
+    // Obstáculos fijos repartidos por el mapa, lejos del punto de aparición del jugador
+    for (let i = 0; i < 30; i++) {
+        const { x, y } = this.elegirPosicionObstaculo();
+        this.agregarRoca(x, y);
+    }
 
     this.app.ticker.add(() => this.update());
 }
@@ -176,10 +213,16 @@ async iniciar() {
         this.statsHUD.visible = false;
     }
 
+    // El jugador llegó a 0 de vida, congela la partida y muestra la pantalla de derrota
+    gameOver() {
+        if (this.terminada) return;
+        this.terminada = true;
+        this.pantallaDerrota.mostrar();
+    }
+
     moverCamara() {
     if (!this.targetCamara) return;
 
-    // player.x y player.y deben ser las coordenadas en el juego
     const objX = -this.targetCamara.x + this.W * 0.5;
     const objY = -this.targetCamara.y + this.H * 0.5;
 
@@ -187,36 +230,91 @@ async iniciar() {
     this.containerPrincipal.x += (objX - this.containerPrincipal.x) * lerp;
     this.containerPrincipal.y += (objY - this.containerPrincipal.y) * lerp;
 
-    // Clamp: que no muestre terreno fuera del mundo
-    if (this.containerPrincipal.x > 0) this.containerPrincipal.x = 0;
-    if (this.containerPrincipal.y > 0) this.containerPrincipal.y = 0;
-
-    const limDer = -this.anchoMundo + this.W;
-    const limInf = -this.altoMundo  + this.H;
-    if (this.containerPrincipal.x < limDer) this.containerPrincipal.x = limDer;
-    if (this.containerPrincipal.y < limInf) this.containerPrincipal.y = limInf;
+    // Clamp para no mostrar terreno fuera del mundo. Si la pantalla es más grande que el
+    // mundo en algún eje no hay margen para clampear ahí, así que ese eje se centra
+    if (this.anchoMundo <= this.W) {
+        this.containerPrincipal.x = (this.W - this.anchoMundo) / 2;
+    } else {
+        if (this.containerPrincipal.x > 0) this.containerPrincipal.x = 0;
+        const limDer = -this.anchoMundo + this.W;
+        if (this.containerPrincipal.x < limDer) this.containerPrincipal.x = limDer;
     }
 
-    agregarWraith(x, y, esElite = false)          { this.enemies.push(new Wraith(x, y, this, esElite));         }
-    agregarSpecter(x, y, destinoVector = null, esElite = false) { this.enemies.push(new Specter(x, y, this, destinoVector, esElite)); }
+    if (this.altoMundo <= this.H) {
+        this.containerPrincipal.y = (this.H - this.altoMundo) / 2;
+    } else {
+        if (this.containerPrincipal.y > 0) this.containerPrincipal.y = 0;
+        const limInf = -this.altoMundo + this.H;
+        if (this.containerPrincipal.y < limInf) this.containerPrincipal.y = limInf;
+    }
+    }
+
+    // El tope de maxEnemigos se chequea acá adentro para que valga siempre sin importar
+    // quién llame, spawner, oleada en vector, cheats o el drop de slimes del boss
+    agregarWraith(x, y, esElite = false) {
+        if (this.enemies.length >= this.maxEnemigos) return;
+        this.enemies.push(new Wraith(x, y, this, esElite));
+    }
+
+    agregarSpecter(x, y, destinoVector = null, esElite = false) {
+        if (this.enemies.length >= this.maxEnemigos) return;
+        this.enemies.push(new Specter(x, y, this, destinoVector, esElite));
+    }
+
+    agregarSlime(x, y, esElite = false) {
+        if (this.enemies.length >= this.maxEnemigos) return;
+        this.enemies.push(new Slime(x, y, this, esElite));
+    }
+
+    // Además del tope general, nunca más de un boss vivo a la vez
+    agregarBossSlime(x, y) {
+        if (this.enemies.length >= this.maxEnemigos) return;
+        if (this.enemies.some(e => e instanceof BossSlime)) return;
+        this.enemies.push(new BossSlime(x, y, this));
+    }
     agregarBala(x, y, vx, vy, dano = 1, perforaciones = 0) { this.bullets.push(new Bullet(x, y, vx, vy, this, dano, perforaciones)); }
     agregarXP(x, y, value = 1, esGrande = false, esEspecial = false) { this.xpItems.push(new XPItem(x, y, this, value, esGrande, esEspecial)); }
+    agregarRoca(x, y) { this.obstaculos.push(new Rock(x, y, this)); }
+
+    // Posición al azar para un obstáculo, evitando el punto de aparición del jugador
+    elegirPosicionObstaculo() {
+        const margen             = 40;
+        const centro             = { x: this.anchoMundo / 2, y: this.altoMundo / 2 };
+        const distanciaMinCentro = 150;
+
+        for (let intento = 0; intento < 20; intento++) {
+            const x = margen + Math.random() * (this.anchoMundo - margen * 2);
+            const y = margen + Math.random() * (this.altoMundo - margen * 2);
+            if (distancia(x, y, centro.x, centro.y) < distanciaMinCentro) continue;
+            return { x, y };
+        }
+
+        return { x: margen, y: margen }; // fallback si no encontró lugar libre
+    }
 
     mostrarToast(mensaje) {
         this.toastHUD.text  = mensaje;
-        this.toastTimer = 150; // frames visible (~2.5s a 60fps)
+        this.toastTimer = 150; // frames visible, unos 2.5s a 60fps
     }
 
 
     update() {
-        if (this.pausado || this.enMenuPausa) return;
+        if (this.pausado || this.enMenuPausa || this.terminada) return;
 
         if (this.player) this.player.update(this.keys);
+
+        if (this.player && this.player.vida <= 0) {
+            this.gameOver();
+            return;
+        }
+
         this.updateBalas();
         this.enemies.forEach(e => e.update());
         this.resolverColisionesEnemigos();
         this.resolverColisionJugadorEnemigos();
+        this.resolverColisionesObstaculos();
         this.eliminarEnemigosMarcados();
+        this.actualizarCadaveres();
         this.xpItems.forEach(xp => xp.update());
         if (this.player) {
             this.xpHUD.text = `XP: ${this.player.xp} | Nivel: ${this.player.nivel}`;
@@ -236,6 +334,36 @@ async iniciar() {
         this.actualizarEventoVector();
         this.moverCamara();
         this.actualizarMascaraPercepcion();
+        this.actualizarOscuridad();
+    }
+
+    // Oscurece toda la pantalla salvo un círculo centrado en el jugador, tres veces más
+    // lejos que el círculo de percepción de mascaraPercepcion. Entre ambos radios se ve en
+    // blanco y negro, más allá del segundo es oscuridad total.
+    actualizarOscuridad() {
+        if (!this.player) return;
+
+        // containerPrincipal traduce el mundo a pantalla, sumar su offset da el punto
+        // exacto del jugador en pantalla ya con cámara aplicada
+        const pantallaX = this.containerPrincipal.x + this.player.x;
+        const pantallaY = this.containerPrincipal.y + this.player.y;
+
+        // El círculo que se recorta con cut() tiene que quedar completamente adentro del
+        // rect, si se pasa de los bordes Pixi no lo recorta bien y rellena todo de negro.
+        // Se limita a la distancia al borde más cercano para evitarlo
+        const margenSeguro = Math.max(0, Math.min(pantallaX, this.W - pantallaX, pantallaY, this.H - pantallaY));
+        const radio = Math.min(this.player.rangoDisparo * this.factorRadioOscuridad, margenSeguro);
+
+        this.oscuridad.clear();
+        if (radio <= 0) {
+            this.oscuridad.rect(0, 0, this.W, this.H).fill({ color: 0x000000 });
+            return;
+        }
+        this.oscuridad
+            .rect(0, 0, this.W, this.H)
+            .fill({ color: 0x000000 })
+            .circle(pantallaX, pantallaY, radio)
+            .cut();
     }
 
     // Redibuja y reposiciona el círculo de percepción del jugador sobre mundoColor
@@ -246,14 +374,13 @@ async iniciar() {
         this.mascaraPercepcion.clear();
         this.mascaraPercepcion.circle(0, 0, radio).fill(0xffffff);
 
-        // Coordenadas de mundo: al ser hija de containerPrincipal, la cámara ya la mueve sola
         this.mascaraPercepcion.x = this.player.x;
         this.mascaraPercepcion.y = this.player.y;
     }
 
     // Empuja a los enemigos entre sí para que no se superpongan
     resolverColisionesEnemigos() {
-        const tolerancia = 0.9; // pequeño margen para que no se traben de forma poco natural
+        const tolerancia = 0.9; // margen para que no se traben de forma poco natural
         for (let i = 0; i < this.enemies.length; i++) {
             const a = this.enemies[i];
             for (let j = i + 1; j < this.enemies.length; j++) {
@@ -277,7 +404,7 @@ async iniciar() {
         this.enemies.forEach(e => e.sincronizarGrafico());
     }
 
-    // Los enemigos son sólidos y empujan al jugador, salvo mientras está inmune: ahí los atraviesa
+    // Los enemigos son sólidos y empujan al jugador, salvo mientras está inmune
     resolverColisionJugadorEnemigos() {
         if (!this.player || this.player.inmunidadTimer > 0) return;
 
@@ -287,7 +414,7 @@ async iniciar() {
             const dx = this.player.x - enemigo.x;
             const dy = this.player.y - enemigo.y;
             const dist = Math.hypot(dx, dy) || 0.0001;
-            const minDist = (this.player.tamano / 2) + enemigo.radius;
+            const minDist = this.player.radioColision + enemigo.radius;
 
             if (dist < minDist) {
                 const solapamiento = minDist - dist;
@@ -304,11 +431,52 @@ async iniciar() {
         this.player.sincronizarGrafico();
     }
 
+    // Los obstáculos son sólidos y fijos, frenan a jugador y enemigos
+    resolverColisionesObstaculos() {
+        if (this.player) this.empujarFueraDeObstaculos(this.player, this.player.radioColision);
+        for (const enemigo of this.enemies) this.empujarFueraDeObstaculos(enemigo, enemigo.radius);
+    }
+
+    empujarFueraDeObstaculos(entidad, radioEntidad) {
+        let empujado = false;
+
+        for (const obstaculo of this.obstaculos) {
+            const dx = entidad.x - obstaculo.x;
+            const dy = entidad.y - obstaculo.y;
+            const dist = Math.hypot(dx, dy) || 0.0001;
+            const minDist = radioEntidad + obstaculo.radius;
+
+            if (dist < minDist) {
+                const solapamiento = minDist - dist;
+                entidad.x += (dx / dist) * solapamiento;
+                entidad.y += (dy / dist) * solapamiento;
+                empujado = true;
+            }
+        }
+
+        if (!empujado) return;
+
+        entidad.x = Math.max(0, Math.min(this.anchoMundo, entidad.x));
+        entidad.y = Math.max(0, Math.min(this.altoMundo, entidad.y));
+        entidad.sincronizarGrafico();
+    }
+
     eliminarEnemigosMarcados() {
         for (let i = this.enemies.length - 1; i >= 0; i--) {
             if (this.enemies[i].eliminado) {
                 this.enemies[i].destruir();
                 this.enemies.splice(i, 1);
+            }
+        }
+    }
+
+    // Enemigos que ya recibieron el golpe letal, siguen mostrando el flash blanco hasta
+    // que actualizarMuerte termina la cuenta atrás y recién ahí se destruyen
+    actualizarCadaveres() {
+        for (let i = this.cadaveres.length - 1; i >= 0; i--) {
+            if (this.cadaveres[i].actualizarMuerte()) {
+                this.cadaveres[i].destruir();
+                this.cadaveres.splice(i, 1);
             }
         }
     }
@@ -327,17 +495,19 @@ async iniciar() {
                     b.golpeados.add(e);
 
                     if (e.recibirDano(b.dano)) {
-                        // Los élites dejan 5 XP y pueden soltar una mota especial
+                        // Los élites dejan 5 xp y pueden soltar una mota especial
                         const value = e.esGrande ? 5 : 1;
                         this.agregarXP(e.x, e.y, value, e.esGrande);
                         if (e.esGrande && Math.random() < 0.35) {
                             this.agregarXP(e.x + 14, e.y - 14, 0, false, true);
                         }
-                        e.destruir();
+                        // No se destruye todavía, queda en cadaveres mostrando el flash
+                        // blanco antes de desaparecer de verdad
+                        this.cadaveres.push(e);
                         this.enemies.splice(j, 1);
                     }
 
-                    // Disparo perforante: la bala sigue su camino hasta N enemigos antes de desaparecer
+                    // Disparo perforante, la bala sigue hasta N enemigos antes de desaparecer
                     if (b.perforacionesRestantes > 0) {
                         b.perforacionesRestantes--;
                     } else {
@@ -374,14 +544,14 @@ async iniciar() {
         }
 
         switch (Math.floor(Math.random() * 4)) {
-            case 0: return { sx: Math.random() * this.anchoMundo, sy: -margen };               // Arriba
-            case 1: return { sx: Math.random() * this.anchoMundo, sy: this.altoMundo + margen }; // Abajo
-            case 2: return { sx: -margen,               sy: Math.random() * this.altoMundo };  // Izquierda
-            default: return { sx: this.anchoMundo + margen, sy: Math.random() * this.altoMundo }; // Derecha
+            case 0: return { sx: Math.random() * this.anchoMundo, sy: -margen };
+            case 1: return { sx: Math.random() * this.anchoMundo, sy: this.altoMundo + margen };
+            case 2: return { sx: -margen,               sy: Math.random() * this.altoMundo };
+            default: return { sx: this.anchoMundo + margen, sy: Math.random() * this.altoMundo };
         }
     }
 
-    // Probabilidad de élite: aparece desde nivel 3 y crece de a poco con el nivel del jugador
+    // Probabilidad de élite, aparece desde nivel 3 y crece de a poco con el nivel del jugador
     probabilidadElite() {
         const nivel = this.player ? this.player.nivel : 1;
         if (nivel < 3) return 0;
@@ -390,7 +560,7 @@ async iniciar() {
 
     spawner() {
         const nivel = this.player ? this.player.nivel : 1;
-        this.wave = nivel; // solo informativo (HUD/debug)
+        this.wave = nivel; // solo informativo para HUD y debug
 
         // El ritmo de aparición está atado al nivel del jugador, no al tiempo transcurrido
         const enemigosPorSegundo = Math.min(4, 0.4 + 0.25 * (nivel - 1));
@@ -399,11 +569,26 @@ async iniciar() {
         if (++this.spawnTimer >= intervaloFrames) {
             this.spawnTimer = 0;
 
-            const esHalcon = Math.random() > 0.5; // Wraith = halcón (rápido), Specter = zorro (lento)
-            const { sx, sy } = this.elegirPosicionBorde(esHalcon);
-            const esElite = Math.random() < this.probabilidadElite();
+            // Tope duro, si ya hay demasiados enemigos vivos no sigue acumulando
+            if (this.enemies.length >= this.maxEnemigos) return;
 
-            esHalcon ? this.agregarWraith(sx, sy, esElite) : this.agregarSpecter(sx, sy, null, esElite);
+            // Boss slime, recién desde nivel 10, chance baja por tick, solo uno vivo a la vez
+            const hayBoss = this.enemies.some(e => e instanceof BossSlime);
+            if (nivel >= 10 && !hayBoss && Math.random() < 0.04) {
+                const { sx, sy } = this.elegirPosicionBorde(true);
+                this.agregarBossSlime(sx, sy);
+                return;
+            }
+
+            // Wraith 45%, Specter 30%, Slime 25%. Wraith y Slime son rápidos y sesgan el spawn a las esquinas
+            const tipo     = Math.random();
+            const esRapido = tipo < 0.45 || tipo >= 0.75;
+            const { sx, sy } = this.elegirPosicionBorde(esRapido);
+            const esElite  = Math.random() < this.probabilidadElite();
+
+            if (tipo < 0.45)      this.agregarWraith(sx, sy, esElite);
+            else if (tipo < 0.75) this.agregarSpecter(sx, sy, null, esElite);
+            else                  this.agregarSlime(sx, sy, esElite);
         }
     }
 
@@ -414,23 +599,26 @@ async iniciar() {
         }
     }
 
-    // Punto al azar sobre el perímetro del mapa.
+    // Punto al azar sobre el perímetro del mapa
     elegirPuntoPerimetro() {
         const perimetro = 2 * (this.anchoMundo + this.altoMundo);
         let d = Math.random() * perimetro;
 
-        if (d < this.anchoMundo) return { x: d, y: 0 };                              // arriba
+        if (d < this.anchoMundo) return { x: d, y: 0 };
         d -= this.anchoMundo;
-        if (d < this.altoMundo) return { x: this.anchoMundo, y: d };                  // derecha
+        if (d < this.altoMundo) return { x: this.anchoMundo, y: d };
         d -= this.altoMundo;
-        if (d < this.anchoMundo) return { x: this.anchoMundo - d, y: this.altoMundo }; // abajo
+        if (d < this.anchoMundo) return { x: this.anchoMundo - d, y: this.altoMundo };
         d -= this.anchoMundo;
-        return { x: 0, y: this.altoMundo - d };                                       // izquierda
+        return { x: 0, y: this.altoMundo - d };
     }
 
     iniciarEventoVector() {
         const jugador = this.player;
         if (!jugador) return;
+
+        // Respeta el mismo tope duro que el spawner normal
+        if (this.enemies.length >= this.maxEnemigos) return;
 
         // El jugador no puede estar pegado a un borde para que la dirección quede bien definida
         const margen = 20;
@@ -439,7 +627,7 @@ async iniciar() {
 
         const origen = this.elegirPuntoPerimetro();
 
-        // Rayo origen -> jugador extendido hasta el borde opuesto del mapa (sin dibujarse en pantalla)
+        // Rayo origen a jugador extendido hasta el borde opuesto del mapa
         const dir = { x: jugador.x - origen.x, y: jugador.y - origen.y };
 
         let tSalida = Infinity;
@@ -450,7 +638,7 @@ async iniciar() {
 
         const destino = { x: origen.x + dir.x * tSalida, y: origen.y + dir.y * tSalida };
 
-        // Reparte los specters en paralelo a la línea para que no queden todos superpuestos
+        // Reparte los specters en paralelo a la línea para que no queden superpuestos
         const perp = normalizar(-dir.y, dir.x);
         const dispersion = 80;
         const cantidadSpecters = 20;

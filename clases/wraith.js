@@ -1,11 +1,17 @@
 
 
+// Enemigo rápido tipo halcón. Persigue al jugador en enjambre usando boids con otros wraiths
+// para repartirse en vez de amontonarse.
 class Wraith extends Enemy {
     constructor(x, y, game, esElite = false) {
-        // Wraith: rápido, fuerza al jugador a reaccionar
         super(x, y, 'wraith.png', 1, game, esElite);
 
-        this.radioBoids = 50; // Radio de interacción para el comportamiento de enjambre
+        // Cada 3 niveles del jugador todos los wraiths ganan 1 de vida extra.
+        // Tope en +10 para que no se vuelvan esponjas de balas imposibles de limpiar
+        const nivelJugador = this.game.player ? this.game.player.nivel : 1;
+        this.hp += Math.min(10, Math.floor(nivelJugador / 3));
+
+        this.radioBoids = 50; // radio de interacción del enjambre
 
         // Reemplaza el sprite estático por la animación de movimiento (8 frames de 70x70)
         this.game.mundoColor.removeChild(this.gfx);
@@ -44,13 +50,11 @@ class Wraith extends Enemy {
         const jugador = this.game.player;
         if (!jugador) return;
 
-        // Dirección hacia el jugador
         const dirJugador = normalizar(
             jugador.x - this.x,
             jugador.y - this.y
         );
 
-        // Fuerzas del comportamiento Boids con los Wraiths cercanos
         const boids = this.calcularBoids();
 
         const fx = dirJugador.x * 0.8 + boids.fx * 0.2;
@@ -63,11 +67,12 @@ class Wraith extends Enemy {
 
         this.orientarSprite();
         this.sincronizarGrafico();
+        this.actualizarFlash();
     }
 
     calcularBoids() {
-        let ax = 0, ay = 0; // Suma de velocidades (alineación)
-        let sx = 0, sy = 0; // Fuerza de separación
+        let ax = 0, ay = 0; // suma de velocidades, alineación
+        let sx = 0, sy = 0; // fuerza de separación
         let count = 0;
 
         for (const otro of this.game.enemies) {
@@ -75,11 +80,9 @@ class Wraith extends Enemy {
 
             const d = distancia(this.x, this.y, otro.x, otro.y);
             if (d < this.radioBoids && d > 0) {
-                // Alineación: acumulamos velocidades de los vecinos
                 ax += otro.vx;
                 ay += otro.vy;
 
-                // Separación
                 sx -= (otro.x - this.x) / d;
                 sy -= (otro.y - this.y) / d;
 
@@ -87,13 +90,11 @@ class Wraith extends Enemy {
             }
         }
 
-        // Si no hay vecinos, no aplicamos fuerzas de boids
         if (count === 0) return { fx: 0, fy: 0 };
 
         return {
-            fx: (ax / count) * 0.3 + sx * 1.2, // Alineación débil + Separación fuerte
+            fx: (ax / count) * 0.3 + sx * 1.2, // alineación débil, separación fuerte
             fy: (ay / count) * 0.3 + sy * 1.2
         };
     }
 }
-

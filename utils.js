@@ -15,10 +15,22 @@ function aleatorioInt(min, max) {
 }
 
 
+// Filtro de flash blanco para el golpe de jugador y enemigos. Cada sprite necesita su propia instancia, compartir una sola entre
+// varios sprites de un contenedor filtrado rompía el render cuando había muchos flasheando a la vez.
+function crearFiltroFlashBlanco() {
+    const filtro = new PIXI.ColorMatrixFilter();
+    filtro.matrix = [
+        0, 0, 0, 0, 1,
+        0, 0, 0, 0, 1,
+        0, 0, 0, 0, 1,
+        0, 0, 0, 1, 0,
+    ];
+    return filtro;
+}
+
 const textureCache = {};
 
 function cargarTextura(nombreArchivo) {
-    // Verificamos si ya está en caché
     if (textureCache[nombreArchivo]) {
         return textureCache[nombreArchivo];
     }

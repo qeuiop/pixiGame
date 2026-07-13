@@ -1,13 +1,19 @@
 
 
+// Enemigo lento tipo zorro. Normalmente persigue al jugador en enjambre con boids, pero si
+// tiene un destinoVector lo ignora y viaja en línea recta hasta llegar y desaparecer.
 class Specter extends Enemy {
     constructor(x, y, game, destinoVector = null, esElite = false) {
-        // Specter: lento, presión constante pero evadible
         super(x, y, 'specter.png', 2, game, esElite);
+
+        // Cada 4 niveles del jugador todos los specters ganan 1 de vida extra.
+        // Tope en +8 por la misma razón que en Wraith
+        const nivelJugador = this.game.player ? this.game.player.nivel : 1;
+        this.hp += Math.min(8, Math.floor(nivelJugador / 4));
 
         this.radioBoids = 60;
 
-        // Si se define, el specter ignora al jugador y viaja en línea recta hacia este punto
+        // Si se define, el specter ignora al jugador y viaja en línea recta a este punto
         this.destinoVector = destinoVector;
         this.eliminado = false;
 
@@ -30,9 +36,11 @@ class Specter extends Enemy {
         this.gfx.anchor.set(0.5);
         this.gfx.animationSpeed = 0.15;
         this.gfx.loop = true;
-        this.gfx.play();
+        // Arranca en un frame al azar para que varios specters no animen sincronizados.
+        // Clamp defensivo por si el redondeo de Math.random() da justo CANTIDAD_FRAMES
+        this.gfx.gotoAndPlay(Math.min(CANTIDAD_FRAMES - 1, Math.floor(Math.random() * CANTIDAD_FRAMES)));
 
-        // this.escala solo existe si es élite: se combina con la base para que se vea más grande
+        // this.escala solo existe si es élite, se combina con la base para verse más grande
         const escalaBase = TAMANO_EN_JUEGO / FRAME;
         this.gfx.scale.set(escalaBase * (this.esGrande ? this.escala : 1));
 
@@ -58,13 +66,11 @@ class Specter extends Enemy {
         const jugador = this.game.player;
         if (!jugador) return;
 
-        // Dirección hacia el jugador
         const dirJugador = normalizar(
             jugador.x - this.x,
             jugador.y - this.y
         );
 
-        // Fuerzas del comportamiento Boids con los Specters cercanos
         const boids = this.calcularBoids();
 
         const fx = dirJugador.x * 0.4 + boids.fx * 0.6;
@@ -77,6 +83,7 @@ class Specter extends Enemy {
 
         this.orientarSprite();
         this.sincronizarGrafico();
+        this.actualizarFlash();
     }
 
     moverHaciaVector() {
@@ -92,29 +99,28 @@ class Specter extends Enemy {
 
         this.orientarSprite();
         this.sincronizarGrafico();
+        this.actualizarFlash();
 
-        // Llegó al punto opuesto del vector: se elimina
+        // Llegó al punto opuesto del vector, se elimina
         if (distancia(this.x, this.y, this.destinoVector.x, this.destinoVector.y) < 20) {
             this.eliminado = true;
         }
     }
 
     calcularBoids() {
-        let ax = 0, ay = 0; // Suma de velocidades (alineación)
-        let sx = 0, sy = 0; // Fuerza de separación
+        let ax = 0, ay = 0; // suma de velocidades, alineación
+        let sx = 0, sy = 0; // fuerza de separación
         let count = 0;
 
         for (const otro of this.game.enemies) {
-            // Solo interactuamos con otros Specters (no con Wraiths)
+            // Solo interactúa con otros Specters, no con Wraiths
             if (otro === this || !(otro instanceof Specter)) continue;
 
             const d = distancia(this.x, this.y, otro.x, otro.y);
             if (d < this.radioBoids && d > 0) {
-                // Alineación: acumulamos velocidades de los vecinos
                 ax += otro.vx;
                 ay += otro.vy;
 
-                // Separación
                 sx -= (otro.x - this.x) / d;
                 sy -= (otro.y - this.y) / d;
 
@@ -122,11 +128,10 @@ class Specter extends Enemy {
             }
         }
 
-        // Si no hay vecinos, no aplicamos fuerzas de boids
         if (count === 0) return { fx: 0, fy: 0 };
 
         return {
-            fx: (ax / count) * 0.3 + sx * 1.2, // Alineación débil + Separación fuerte
+            fx: (ax / count) * 0.3 + sx * 1.2, // alineación débil, separación fuerte
             fy: (ay / count) * 0.3 + sy * 1.2
         };
     }
