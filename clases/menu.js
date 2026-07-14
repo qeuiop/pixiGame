@@ -8,35 +8,85 @@ class MenuPrincipal {
         this.overlay.visible = false;
         this.game.app.stage.addChild(this.overlay);
 
-        const fondo = new PIXI.Graphics();
-        fondo.rect(0, 0, this.game.W, this.game.H).fill({ color: 0x000000 });
+        const texturaFondo = PIXI.Assets.get('sprites/fondo.png');
+        const fondo = new PIXI.TilingSprite({ texture: texturaFondo, width: this.game.W, height: this.game.H });
         this.overlay.addChild(fondo);
 
-        const titulo = new PIXI.Text('MI JUEGO', {
-            fill: 0xffffff, fontFamily: 'Arial', fontSize: 40, fontWeight: 'bold',
-        });
-        titulo.anchor.set(0.5, 0);
-        titulo.x = this.game.W / 2;
-        titulo.y = 120;
-        this.overlay.addChild(titulo);
-
-        const botones = [
-            { texto: 'JUGAR', accion: () => this.jugar() },
-            { texto: 'SALIR', accion: () => window.close() },
-        ];
+        this.crearGallinas(20);
 
         const anchoBoton = 220;
         const altoBoton  = 56;
-        const espacio    = 22;
-        const totalAlto  = botones.length * altoBoton + (botones.length - 1) * espacio;
-        let y = this.game.H / 2 - totalAlto / 2;
+        const boton = this.crearBoton('JUGAR', () => this.jugar(), anchoBoton, altoBoton);
+        boton.x = this.game.W / 2 - anchoBoton / 2;
+        boton.y = this.game.H / 2 - altoBoton / 2;
+        this.overlay.addChild(boton);
+    }
 
-        for (const { texto, accion } of botones) {
-            const boton = this.crearBoton(texto, accion, anchoBoton, altoBoton);
-            boton.x = this.game.W / 2 - anchoBoton / 2;
-            boton.y = y;
-            this.overlay.addChild(boton);
-            y += altoBoton + espacio;
+    // Gallinas comiendo desparramadas por la pantalla, mirando para cualquier lado al azar.
+    // Cada una, en un ciclo propio de unos 5 segundos, corre y se da vuelta hacia el otro lado
+    crearGallinas(cantidad) {
+        const eatSrc = PIXI.Assets.get('sprites/chicken_eating_left-Sheet.png');
+        const runSrc = PIXI.Assets.get('sprites/chicken_run_left-Sheet.png');
+        const FRAMES_EAT = 8;
+        const FRAMES_RUN = 4;
+
+        this.framesEatGallina = Array.from({ length: FRAMES_EAT }, (_, i) =>
+            new PIXI.Texture({ source: eatSrc.source, frame: new PIXI.Rectangle(i * 16, 0, 16, 16) })
+        );
+        this.framesRunGallina = Array.from({ length: FRAMES_RUN }, (_, i) =>
+            new PIXI.Texture({ source: runSrc.source, frame: new PIXI.Rectangle(i * 16, 0, 16, 16) })
+        );
+
+        const DURACION_CICLO = 5 * 60; // 5s a 60fps entre corridas
+
+        this.gallinas = [];
+
+        for (let i = 0; i < cantidad; i++) {
+            const gallina = new PIXI.AnimatedSprite(this.framesEatGallina);
+            gallina.anchor.set(0.5);
+            gallina.animationSpeed = 0.12;
+            gallina.loop = true;
+            gallina.x = Math.random() * this.game.W;
+            gallina.y = Math.random() * this.game.H;
+            gallina.gotoAndPlay(Math.min(FRAMES_EAT - 1, Math.floor(Math.random() * FRAMES_EAT)));
+
+            const estado = { gfx: gallina, mirandoIzquierda: Math.random() < 0.5, corriendo: false };
+            gallina.scale.x = estado.mirandoIzquierda ? 2 : -2;
+            gallina.scale.y = 2;
+
+            // Arranque desincronizado: la primera corrida cae en algún punto dentro de los primeros 5s
+            estado.timer = Math.floor(Math.random() * DURACION_CICLO);
+
+            this.overlay.addChild(gallina);
+            this.gallinas.push(estado);
+        }
+
+        this._duracionCicloGallinas = DURACION_CICLO;
+        this._tickerGallinas = () => this.actualizarGallinas();
+        this.game.app.ticker.add(this._tickerGallinas);
+    }
+
+    actualizarGallinas() {
+        for (const g of this.gallinas) {
+            if (g.corriendo) continue;
+
+            if (--g.timer <= 0) {
+                g.corriendo = true;
+                g.mirandoIzquierda = !g.mirandoIzquierda;
+                g.gfx.scale.x = g.mirandoIzquierda ? 2 : -2;
+
+                g.gfx.textures = this.framesRunGallina;
+                g.gfx.loop = false;
+                g.gfx.onComplete = () => {
+                    g.corriendo = false;
+                    g.gfx.textures = this.framesEatGallina;
+                    g.gfx.loop = true;
+                    g.gfx.onComplete = null;
+                    g.gfx.gotoAndPlay(0);
+                    g.timer = this._duracionCicloGallinas;
+                };
+                g.gfx.gotoAndPlay(0);
+            }
         }
     }
 
@@ -69,6 +119,7 @@ class MenuPrincipal {
     mostrar() { this.overlay.visible = true; }
 
     jugar() {
+        this.game.app.ticker.remove(this._tickerGallinas);
         this.overlay.visible = false;
         this.overlay.destroy({ children: true });
         this.game.iniciarPartida();

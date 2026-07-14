@@ -43,6 +43,9 @@ class Game {
         this.mascaraPercepcion   = null; // círculo que define qué parte de mundoColor se muestra
         this.oscuridad           = null; // vignette de pantalla, oscurece todo salvo un círculo centrado en el jugador
         this.factorRadioOscuridad = 3;   // su radio es mas veces el de mascaraPercepcion
+        // Interruptor del efecto de percepción (mundo gris + máscara de color + oscuridad).
+        // En false, mundoColor se ve completo siempre y no aparece la oscuridad en los bordes
+        this.efectoPercepcionHabilitado = false;
         this.targetCamara        = null;
         this.limiteDerechoCamara = 0;
         this.limiteInferiorCamara= 0;
@@ -119,7 +122,7 @@ iniciarPartida() {
     // Hija de containerPrincipal para que su transform se actualice junto con la cámara
     this.mascaraPercepcion = new PIXI.Graphics();
     this.containerPrincipal.addChild(this.mascaraPercepcion);
-    this.mundoColor.mask = this.mascaraPercepcion;
+    if (this.efectoPercepcionHabilitado) this.mundoColor.mask = this.mascaraPercepcion;
 
     // Los stats quedan ocultos y solo se muestran con el menú de pausa abierto
     this.xpHUD = new PIXI.Text('XP: 0', {
@@ -204,6 +207,11 @@ iniciarPartida() {
         this.menu.abrir();
         this.xpHUD.visible    = true;
         this.statsHUD.visible = true;
+
+        // El overlay del menú de pausa se agregó después que estos textos, así que sin esto
+        // quedaba encima y los oscurecía con su fondo semitransparente
+        this.app.stage.addChild(this.xpHUD);
+        this.app.stage.addChild(this.statsHUD);
     }
 
     cerrarMenuPausa() {
@@ -230,7 +238,7 @@ iniciarPartida() {
     this.containerPrincipal.x += (objX - this.containerPrincipal.x) * lerp;
     this.containerPrincipal.y += (objY - this.containerPrincipal.y) * lerp;
 
-    // Clamp para no mostrar terreno fuera del mundo. Si la pantalla es más grande que el
+    // No mostrar terreno fuera del mundo. Si la pantalla es más grande que el
     // mundo en algún eje no hay margen para clampear ahí, así que ese eje se centra
     if (this.anchoMundo <= this.W) {
         this.containerPrincipal.x = (this.W - this.anchoMundo) / 2;
@@ -333,8 +341,10 @@ iniciarPartida() {
         this.spawner();
         this.actualizarEventoVector();
         this.moverCamara();
-        this.actualizarMascaraPercepcion();
-        this.actualizarOscuridad();
+        if (this.efectoPercepcionHabilitado) {
+            this.actualizarMascaraPercepcion();
+            this.actualizarOscuridad();
+        }
     }
 
     // Oscurece toda la pantalla salvo un círculo centrado en el jugador, tres veces más
@@ -343,7 +353,7 @@ iniciarPartida() {
     actualizarOscuridad() {
         if (!this.player) return;
 
-        // containerPrincipal traduce el mundo a pantalla, sumar su offset da el punto
+        // containerPrincipal hace el mundo a pantalla, sumar su offset da el punto
         // exacto del jugador en pantalla ya con cámara aplicada
         const pantallaX = this.containerPrincipal.x + this.player.x;
         const pantallaY = this.containerPrincipal.y + this.player.y;
@@ -574,13 +584,13 @@ iniciarPartida() {
 
             // Boss slime, recién desde nivel 10, chance baja por tick, solo uno vivo a la vez
             const hayBoss = this.enemies.some(e => e instanceof BossSlime);
-            if (nivel >= 10 && !hayBoss && Math.random() < 0.04) {
+            if (nivel >= 10 && !hayBoss && Math.random() < 0.1) {
                 const { sx, sy } = this.elegirPosicionBorde(true);
                 this.agregarBossSlime(sx, sy);
                 return;
             }
 
-            // Wraith 45%, Specter 30%, Slime 25%. Wraith y Slime son rápidos y sesgan el spawn a las esquinas
+            // Wraith 45%, Specter 30%, Slime 25%. Wraith y Slime son rápidos y limitan el spawn a las esquinas
             const tipo     = Math.random();
             const esRapido = tipo < 0.45 || tipo >= 0.75;
             const { sx, sy } = this.elegirPosicionBorde(esRapido);

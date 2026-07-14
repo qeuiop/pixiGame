@@ -1,13 +1,13 @@
 
 
-// Enemigo rápido tipo halcón. Persigue al jugador en enjambre usando boids con otros wraiths
+// Enemigo rápido. Persigue al jugador en enjambre usando boids con otros wraiths
 // para repartirse en vez de amontonarse.
 class Wraith extends Enemy {
     constructor(x, y, game, esElite = false) {
         super(x, y, 'wraith.png', 1, game, esElite);
 
         // Cada 3 niveles del jugador todos los wraiths ganan 1 de vida extra.
-        // Tope en +10 para que no se vuelvan esponjas de balas imposibles de limpiar
+        // Tope en +10 para que no se vuelvan imposibles de limpiar
         const nivelJugador = this.game.player ? this.game.player.nivel : 1;
         this.hp += Math.min(10, Math.floor(nivelJugador / 3));
 

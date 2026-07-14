@@ -1,6 +1,6 @@
 
 
-// Enemigo lento tipo zorro. Normalmente persigue al jugador en enjambre con boids, pero si
+// Enemigo lento tipo. Normalmente persigue al jugador en enjambre con boids, pero si
 // tiene un destinoVector lo ignora y viaja en línea recta hasta llegar y desaparecer.
 class Specter extends Enemy {
     constructor(x, y, game, destinoVector = null, esElite = false) {

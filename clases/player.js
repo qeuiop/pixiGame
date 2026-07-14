@@ -1,5 +1,9 @@
 
 // Catálogo de mejoras básicas al subir de nivel, cada entrada tiene un tipo y una fábrica generar()
+
+// rehacer  el catalogo de mejoras para que este en una nueva clase
+//antigravity buscar
+//menu en una nueva clase
 const MEJORAS_CATALOGO = [
     {
         tipo: 'rango',
@@ -79,13 +83,13 @@ const MEJORAS_ESPECIALES_CATALOGO = [
     {
         tipo: 'dividido',
         descripcion: 'Disparo dividido',
-        nivelInicial: () => ({ cada: 4 }), // cada N disparos se divide en 2 hacia objetivos cercanos
+        nivelInicial: () => ({ cada: 4 }), // cada 4 disparos se divide en 2 hacia objetivos cercanos
         mejorar: (estado) => { estado.cada = Math.max(2, estado.cada - 1); },
     },
     {
         tipo: 'perforante',
         descripcion: 'Disparo perforante',
-        nivelInicial: () => ({ atraviesa: 1 }), // el proyectil atraviesa N enemigos en línea
+        nivelInicial: () => ({ atraviesa: 1 }), // el proyectil atraviesa  enemigos en línea
         mejorar: (estado) => { estado.atraviesa += 1; },
     },
 ];
